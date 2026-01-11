@@ -1,3 +1,5 @@
+# app/utils/prompt_templates.py
+
 # Resume Analysis Prompt Templates
 
 # Prompt 1: Extract Resume Information
@@ -7,13 +9,13 @@ You're helping extract key information from resumes into a structured format.
 Pull out the important details and return them as clean JSON - no extra text or formatting.
 
 Here's what we need:
-{
+{{
   "name": "",
   "total_experience_years": 0,
   "skills": [],
   "education": [],
   "projects": []
-}
+}}
 
 Guidelines:
 - Experience should be in years (whole number)
@@ -27,25 +29,25 @@ Example 1:
 Resume: "Sarah Chen has been working as a data analyst for 5 years. She specializes in SQL, Tableau, and Python. She graduated with an MS in Data Science from Stanford University and holds a BS in Mathematics from UC Berkeley. Her notable work includes building a customer churn prediction model and creating an executive dashboard for sales analytics."
 
 Output:
-{
+{{
   "name": "Sarah Chen",
   "total_experience_years": 5,
   "skills": ["SQL", "Tableau", "Python"],
   "education": ["MS Data Science - Stanford University", "BS Mathematics - UC Berkeley"],
   "projects": ["Customer churn prediction model - ML system to forecast customer retention", "Executive sales dashboard - Analytics visualization for leadership team"]
-}
+}}
 
 Example 2:
 Resume: "Mike Rodriguez, fullstack developer, 2 years experience. Works with React, Node.js, and MongoDB. BCA from Delhi University. Built an e-commerce platform and a real-time chat application."
 
 Output:
-{
+{{
   "name": "Mike Rodriguez",
   "total_experience_years": 2,
   "skills": ["React", "Node.js", "MongoDB"],
   "education": ["BCA - Delhi University"],
   "projects": ["E-commerce platform - Online shopping web application", "Real-time chat app - Instant messaging system"]
-}
+}}
 
 Now extract from this resume:
 {resume_text}
@@ -59,11 +61,11 @@ Break down this job posting and tell me what they're really looking for.
 Return the info as clean JSON.
 
 Structure needed:
-{
+{{
   "required_skills": [],
   "min_experience": 0,
   "nice_to_have_skills": []
-}
+}}
 
 What to look for:
 - Required skills are the must-haves they mention
@@ -75,31 +77,31 @@ Example 1:
 Job Post: "Seeking a frontend engineer with at least 3 years building modern web apps. You must be proficient in React and TypeScript. Experience with Next.js and GraphQL is a plus. We value clean code and strong communication skills."
 
 Output:
-{
+{{
   "required_skills": ["React", "TypeScript"],
   "min_experience": 3,
   "nice_to_have_skills": ["Next.js", "GraphQL"]
-}
+}}
 
 Example 2:
 Job Post: "DevOps role requiring Kubernetes and Terraform expertise. Should have worked with CI/CD pipelines. Familiarity with monitoring tools like Prometheus would be great. Looking for someone with around 4+ years in infrastructure."
 
 Output:
-{
+{{
   "required_skills": ["Kubernetes", "Terraform", "CI/CD"],
   "min_experience": 4,
   "nice_to_have_skills": ["Prometheus"]
-}
+}}
 
 Example 3:
 Job Post: "Junior position for mobile developers. Need someone who knows Flutter. Firebase knowledge is beneficial but we can train the right person."
 
 Output:
-{
+{{
   "required_skills": ["Flutter"],
   "min_experience": 0,
   "nice_to_have_skills": ["Firebase"]
-}
+}}
 
 Analyze this job description:
 {job_description}
@@ -114,13 +116,13 @@ You're doing a final assessment of how well a candidate fits a job opening based
 Look at the data provided and write a professional evaluation.
 
 Return this structure as JSON:
-{
+{{
   "candidate_summary": "",
   "overall_fit": "",
   "strengths": [],
   "gaps": [],
   "improvement_suggestions": []
-}
+}}
 
 What you're given:
 - Candidate name and experience level
@@ -151,13 +153,13 @@ Input Data:
 - Projects: ["API development", "Database optimization"]
 
 Output:
-{
+{{
   "candidate_summary": "Experienced backend engineer with 5 years in the field, strong Python and Django expertise with cloud deployment experience",
   "overall_fit": "Strong match - meets experience requirement and has 75% skill alignment with minor gaps in caching technologies",
   "strengths": ["Solid Python and Django foundation covering core requirements", "Exceeds minimum experience by 2 years", "Cloud experience with AWS aligns with job needs", "Graduate degree in relevant field", "Hands-on API and database work shown in projects"],
   "gaps": ["Missing Redis experience which is required for the role", "No specific mention of caching implementation"],
   "improvement_suggestions": ["Learn Redis fundamentals through their official tutorial - should take a few days", "Build a small project implementing Redis caching with Django", "Review common caching patterns and strategies used in production systems"]
-}
+}}
 
 Example 2:
 Input Data:
@@ -173,13 +175,13 @@ Input Data:
 - Projects: ["Personal blog", "Todo app"]
 
 Output:
-{
+{{
   "candidate_summary": "Junior frontend developer with 1 year experience, currently working with Vue.js but missing several key technologies for this role",
   "overall_fit": "Not a strong match - significant gaps in required technologies and below experience threshold",
   "strengths": ["Good JavaScript fundamentals which translate across frameworks", "Web development foundation with HTML/CSS", "Framework experience with Vue.js shows modern dev understanding"],
   "gaps": ["Needs React experience instead of Vue.js", "TypeScript is required but not present", "Backend skills with Node.js are missing", "Only 1 year experience vs 3 year minimum"],
   "improvement_suggestions": ["Transition from Vue to React - many concepts overlap, start with React docs", "Pick up TypeScript alongside React for better learning", "Build a fullstack project using React + Node.js to cover multiple gaps", "Consider junior roles that match current experience level while building these skills"]
-}
+}}
 
 Example 3:
 Input Data:
@@ -196,13 +198,13 @@ Input Data:
 - Projects: ["Payment gateway integration", "Container orchestration setup"]
 
 Output:
-{
+{{
   "candidate_summary": "Mid-level backend developer with 4 years experience in Java ecosystem, strong containerization skills and top-tier education",
   "overall_fit": "Very good match - covers core technologies with 75% alignment and brings valuable bonus skills",
   "strengths": ["Strong Java and Spring Boot expertise matching core requirements", "Meets experience requirement comfortably", "Docker skills cover deployment needs", "Bonus Kubernetes knowledge adds significant value", "Relevant project work in payments and orchestration", "Strong educational background from premier institution"],
   "gaps": ["Microservices architecture not explicitly mentioned despite related skills"],
   "improvement_suggestions": ["Document any microservices work you've done - you likely have exposure given Spring Boot experience", "Review microservices design patterns and best practices", "If no direct experience, refactor a project to use microservices architecture"]
-}
+}}
 
 Now generate the assessment for this candidate:
 
