@@ -7,8 +7,6 @@ class ResumeParser:
     
     MAX_PDF_SIZE = 10 * 1024 * 1024  # 10MB limit
     MIN_TEXT_LENGTH = 50  # Minimum characters for valid resume
-    MAX_PAGES = 4  # Only extract first 4 pages
-    MAX_TEXT_LENGTH = 12000  # Truncate to reduce LLM processing time
     
     @staticmethod
     async def extract_text_from_pdf(file: UploadFile) -> str:
@@ -60,10 +58,8 @@ class ResumeParser:
                             detail="PDF contains no pages."
                         )
                     
-                    # Extract only first 4 pages
-                    pages_to_extract = min(total_pages, ResumeParser.MAX_PAGES)
                     
-                    for page_num in range(pages_to_extract):
+                    for page_num in range(total_pages):
                         page = pdf[page_num]
                         page_text = page.get_text()
                         if page_text:
@@ -106,8 +102,6 @@ class ResumeParser:
             
             # Truncate to maximum length
             cleaned_text = text.strip()
-            if len(cleaned_text) > ResumeParser.MAX_TEXT_LENGTH:
-                cleaned_text = cleaned_text[:ResumeParser.MAX_TEXT_LENGTH]
             
             return cleaned_text
             
