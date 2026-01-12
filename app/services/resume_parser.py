@@ -1,19 +1,19 @@
-import pdfplumber
+import fitz  # PyMuPDF
 from fastapi import UploadFile, HTTPException
-import io
-import os
 
 
 class ResumeParser:
-    """Service to parse PDF resumes and extract text"""
+    """Service to parse PDF resumes and extract text - OPTIMIZED with PyMuPDF"""
     
     MAX_PDF_SIZE = 10 * 1024 * 1024  # 10MB limit
     MIN_TEXT_LENGTH = 50  # Minimum characters for valid resume
+    MAX_PAGES = 4  # Only extract first 4 pages
+    MAX_TEXT_LENGTH = 12000  # Truncate to reduce LLM processing time
     
     @staticmethod
     async def extract_text_from_pdf(file: UploadFile) -> str:
         """
-        Extract text from uploaded PDF file (optimized for speed)
+        Extract text from uploaded PDF file using PyMuPDF (3-5x faster than pdfplumber)
         
         Args:
             file: UploadFile object containing the PDF
@@ -48,12 +48,11 @@ class ResumeParser:
                     detail=f"PDF file too large. Maximum size is {ResumeParser.MAX_PDF_SIZE / (1024*1024)}MB."
                 )
             
-            # Extract text using pdfplumber with optimized settings
+            # Extract text using PyMuPDF
             text = ""
             try:
-                # ⚡ OPTIMIZATION: Use layout=False for faster extraction
-                with pdfplumber.open(io.BytesIO(content)) as pdf:
-                    total_pages = len(pdf.pages)
+                with fitz.open(stream=content, filetype="pdf") as pdf:
+                    total_pages = len(pdf)
                     
                     if total_pages == 0:
                         raise HTTPException(
@@ -61,21 +60,18 @@ class ResumeParser:
                             detail="PDF contains no pages."
                         )
                     
-                    # Extract text from all pages
-                    for page in pdf.pages:
-                        # ⚡ SPEED: Use extract_text with optimized settings
-                        page_text = page.extract_text(
-                            layout=False,  # Faster extraction
-                            x_tolerance=3,  # Default is good enough
-                            y_tolerance=3
-                        )
+                    # Extract only first 4 pages
+                    pages_to_extract = min(total_pages, ResumeParser.MAX_PAGES)
+                    
+                    for page_num in range(pages_to_extract):
+                        page = pdf[page_num]
+                        page_text = page.get_text()
                         if page_text:
                             text += page_text + "\n"
             
             except HTTPException:
                 raise
             except Exception as pdf_error:
-                # Check for common PDF issues
                 error_msg = str(pdf_error).lower()
                 
                 if "password" in error_msg or "encrypted" in error_msg:
@@ -108,10 +104,12 @@ class ResumeParser:
                     detail=f"Resume text is too short (found {len(text.strip())} characters, minimum {ResumeParser.MIN_TEXT_LENGTH} required). Please ensure the PDF contains a complete resume."
                 )
             
-            # Clean and normalize text
-            text = ResumeParser._clean_text(text)
+            # Truncate to maximum length
+            cleaned_text = text.strip()
+            if len(cleaned_text) > ResumeParser.MAX_TEXT_LENGTH:
+                cleaned_text = cleaned_text[:ResumeParser.MAX_TEXT_LENGTH]
             
-            return text
+            return cleaned_text
             
         except HTTPException:
             raise
@@ -120,22 +118,3 @@ class ResumeParser:
                 status_code=500,
                 detail=f"Unexpected error processing PDF: {str(e)}"
             )
-    
-    @staticmethod
-    def _clean_text(text: str) -> str:
-        """
-        Clean and normalize extracted text (optimized)
-        
-        Args:
-            text: Raw extracted text
-            
-        Returns:
-            str: Cleaned text
-        """
-        # ⚡ OPTIMIZATION: Use list comprehension for faster processing
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-        
-        # Join with single newline
-        cleaned_text = '\n'.join(lines)
-        
-        return cleaned_text
