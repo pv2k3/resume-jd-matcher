@@ -1,5 +1,3 @@
-# app/services/llm_service.py
-
 import os
 import json
 from typing import Dict, Any
@@ -78,6 +76,49 @@ class LLMService:
         return cleaned.strip()
     
     
+    def _ensure_dict(self, data: Any) -> Dict[str, Any]:
+        """
+        Ensure the parsed data is a dictionary.
+        Handle cases where LLM returns a list or other unexpected formats.
+        
+        Args:
+            data: Parsed JSON data (could be dict, list, etc.)
+            
+        Returns:
+            Dictionary with the expected structure
+            
+        Raises:
+            ValueError: If data cannot be converted to expected format
+        """
+        # If it's already a dict, return it
+        if isinstance(data, dict):
+            return data
+        
+        # If it's a list, try to extract the first dict
+        elif isinstance(data, list):
+            if len(data) == 0:
+                raise ValueError("LLM returned an empty list")
+            
+            # If first item is a dict, return it
+            if isinstance(data[0], dict):
+                print(f"   ⚠️  WARNING: LLM returned a list, extracting first item")
+                return data[0]
+            
+            # If list contains multiple dicts, merge them
+            elif all(isinstance(item, dict) for item in data):
+                print(f"   ⚠️  WARNING: LLM returned multiple dicts, merging them")
+                merged = {}
+                for item in data:
+                    merged.update(item)
+                return merged
+            
+            else:
+                raise ValueError(f"List contains non-dict items: {data}")
+        
+        else:
+            raise ValueError(f"Expected dict or list, got {type(data).__name__}: {data}")
+    
+    
     def generate_json(self, prompt: str, temperature: float = 0.5) -> Dict[str, Any]:
         """
         Generate and parse JSON response from Gemini
@@ -100,7 +141,10 @@ class LLMService:
             cleaned_json = self._clean_json_response(raw_output)
             parsed_data = json.loads(cleaned_json)
             
-            return parsed_data
+            # Ensure it's a dict (handle list responses)
+            result = self._ensure_dict(parsed_data)
+            
+            return result
             
         except json.JSONDecodeError as e:
             raise Exception(
@@ -203,8 +247,7 @@ def get_llm_service() -> LLMService:
     Returns:
         Configured LLMService instance
     """
-    return LLMService()
-
+    return LLMService() 
 
 
 if __name__ == "__main__":

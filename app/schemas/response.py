@@ -26,7 +26,7 @@ class MatchingResult(BaseModel):
 
 
 class FinalAnalysis(BaseModel):
-    """Final consolidated analysis output"""
+    """Final consolidated analysis output - POC Compliant"""
     candidate_summary: str = Field(..., description="Brief summary of the candidate")
     match_percentage: float = Field(..., ge=0, le=100, description="Overall match percentage")
     strengths: List[str] = Field(..., description="Candidate's strengths for this role")
