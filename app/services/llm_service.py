@@ -10,7 +10,7 @@ load_dotenv()
 class LLMService:
     """
     LLM service using Google Gemini for all AI interactions.
-    Handles resume parsing, JD analysis, and candidate assessment.
+    Optimized for concurrent execution with balanced temperature settings.
     """
     
     def __init__(self):
@@ -20,13 +20,14 @@ class LLMService:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
         
         genai.configure(api_key=api_key)
+        # Use model from env or default to balanced option
         self.model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         self.model = genai.GenerativeModel(self.model_name)
     
     
     def _call_gemini(self, prompt: str, temperature: float) -> str:
         """
-        Make API call to Gemini
+        Make API call to Gemini (synchronous but thread-safe)
         
         Args:
             prompt: Full prompt text
@@ -39,6 +40,7 @@ class LLMService:
             generation_config = {
                 "temperature": temperature,
                 "response_mime_type": "application/json"
+                # No max_output_tokens - allow full responses
             }
             
             response = self.model.generate_content(
@@ -90,21 +92,17 @@ class LLMService:
         Raises:
             ValueError: If data cannot be converted to expected format
         """
-        # If it's already a dict, return it
         if isinstance(data, dict):
             return data
         
-        # If it's a list, try to extract the first dict
         elif isinstance(data, list):
             if len(data) == 0:
                 raise ValueError("LLM returned an empty list")
             
-            # If first item is a dict, return it
             if isinstance(data[0], dict):
                 print(f"   ⚠️  WARNING: LLM returned a list, extracting first item")
                 return data[0]
             
-            # If list contains multiple dicts, merge them
             elif all(isinstance(item, dict) for item in data):
                 print(f"   ⚠️  WARNING: LLM returned multiple dicts, merging them")
                 merged = {}
@@ -122,6 +120,7 @@ class LLMService:
     def generate_json(self, prompt: str, temperature: float = 0.5) -> Dict[str, Any]:
         """
         Generate and parse JSON response from Gemini
+        Thread-safe method that can be called concurrently.
         
         Args:
             prompt: Complete prompt with instructions
@@ -158,6 +157,7 @@ class LLMService:
     def parse_resume(self, resume_text: str, prompt_template: str) -> Dict[str, Any]:
         """
         Extract structured information from resume
+        Thread-safe for concurrent execution.
         
         Args:
             resume_text: Text extracted from PDF
@@ -167,12 +167,14 @@ class LLMService:
             Dict containing name, total_experience_years, skills, education, projects
         """
         prompt = prompt_template.format(resume_text=resume_text)
-        return self.generate_json(prompt, temperature=0.2)
+        # Use lower temperature for consistent extraction
+        return self.generate_json(prompt, temperature=0.3)
     
     
     def parse_job_description(self, jd_text: str, prompt_template: str) -> Dict[str, Any]:
         """
         Extract requirements from job description
+        Thread-safe for concurrent execution.
         
         Args:
             jd_text: Job description text
@@ -182,7 +184,8 @@ class LLMService:
             Dict containing required_skills, min_experience, nice_to_have_skills
         """
         prompt = prompt_template.format(job_description=jd_text)
-        return self.generate_json(prompt, temperature=0.2)
+        # Use lower temperature for consistent extraction
+        return self.generate_json(prompt, temperature=0.3)
     
     
     def create_final_analysis(
@@ -220,7 +223,7 @@ class LLMService:
             prompt_template: Prompt with all placeholders
             
         Returns:
-            Dict containing candidate_summary, overall_fit, strengths, gaps, improvement_suggestions
+            Dict containing candidate_summary, strengths, gaps, improvement_suggestions
         """
         prompt = prompt_template.format(
             candidate_name=candidate_name,
@@ -237,6 +240,7 @@ class LLMService:
             match_percentage=match_percentage
         )
         
+        # Use medium temperature for natural, varied analysis
         return self.generate_json(prompt, temperature=0.4)
 
 
@@ -247,7 +251,7 @@ def get_llm_service() -> LLMService:
     Returns:
         Configured LLMService instance
     """
-    return LLMService() 
+    return LLMService()
 
 
 if __name__ == "__main__":

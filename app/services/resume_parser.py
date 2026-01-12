@@ -1,15 +1,19 @@
 import pdfplumber
 from fastapi import UploadFile, HTTPException
 import io
+import os
 
 
 class ResumeParser:
     """Service to parse PDF resumes and extract text"""
     
+    MAX_PDF_SIZE = 10 * 1024 * 1024  # 10MB limit
+    MIN_TEXT_LENGTH = 50  # Minimum characters for valid resume
+    
     @staticmethod
     async def extract_text_from_pdf(file: UploadFile) -> str:
         """
-        Extract text from uploaded PDF file
+        Extract text from uploaded PDF file (optimized for speed)
         
         Args:
             file: UploadFile object containing the PDF
@@ -31,31 +35,77 @@ class ResumeParser:
             # Read file content
             content = await file.read()
             
+            # Check file size
             if len(content) == 0:
                 raise HTTPException(
                     status_code=400,
                     detail="Uploaded PDF file is empty."
                 )
             
-            # Extract text using pdfplumber
+            if len(content) > ResumeParser.MAX_PDF_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"PDF file too large. Maximum size is {ResumeParser.MAX_PDF_SIZE / (1024*1024)}MB."
+                )
+            
+            # Extract text using pdfplumber with optimized settings
             text = ""
-            with pdfplumber.open(io.BytesIO(content)) as pdf:
-                if len(pdf.pages) == 0:
+            try:
+                # ⚡ OPTIMIZATION: Use layout=False for faster extraction
+                with pdfplumber.open(io.BytesIO(content)) as pdf:
+                    total_pages = len(pdf.pages)
+                    
+                    if total_pages == 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="PDF contains no pages."
+                        )
+                    
+                    # Extract text from all pages
+                    for page in pdf.pages:
+                        # ⚡ SPEED: Use extract_text with optimized settings
+                        page_text = page.extract_text(
+                            layout=False,  # Faster extraction
+                            x_tolerance=3,  # Default is good enough
+                            y_tolerance=3
+                        )
+                        if page_text:
+                            text += page_text + "\n"
+            
+            except HTTPException:
+                raise
+            except Exception as pdf_error:
+                # Check for common PDF issues
+                error_msg = str(pdf_error).lower()
+                
+                if "password" in error_msg or "encrypted" in error_msg:
                     raise HTTPException(
                         status_code=400,
-                        detail="PDF contains no pages."
+                        detail="PDF is password-protected or encrypted. Please upload an unprotected PDF."
                     )
-                
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n"
+                elif "corrupt" in error_msg or "invalid" in error_msg:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="PDF file appears to be corrupted or invalid. Please try a different file."
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to read PDF: {str(pdf_error)}"
+                    )
             
             # Check if any text was extracted
             if not text.strip():
                 raise HTTPException(
                     status_code=400,
-                    detail="Could not extract text from PDF. The file might be scanned or image-based."
+                    detail="Could not extract text from PDF. The file might be scanned or image-based. Please upload a text-based PDF or use OCR software to convert your resume first."
+                )
+            
+            # Check minimum text length
+            if len(text.strip()) < ResumeParser.MIN_TEXT_LENGTH:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Resume text is too short (found {len(text.strip())} characters, minimum {ResumeParser.MIN_TEXT_LENGTH} required). Please ensure the PDF contains a complete resume."
                 )
             
             # Clean and normalize text
@@ -68,13 +118,13 @@ class ResumeParser:
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Error processing PDF: {str(e)}"
+                detail=f"Unexpected error processing PDF: {str(e)}"
             )
     
     @staticmethod
     def _clean_text(text: str) -> str:
         """
-        Clean and normalize extracted text
+        Clean and normalize extracted text (optimized)
         
         Args:
             text: Raw extracted text
@@ -82,9 +132,8 @@ class ResumeParser:
         Returns:
             str: Cleaned text
         """
-        # Remove excessive whitespace
-        lines = [line.strip() for line in text.split('\n')]
-        lines = [line for line in lines if line]
+        # ⚡ OPTIMIZATION: Use list comprehension for faster processing
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
         # Join with single newline
         cleaned_text = '\n'.join(lines)

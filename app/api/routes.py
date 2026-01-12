@@ -10,9 +10,12 @@ from app.utils.prompt_templates import (
     FINAL_ANALYSIS_PROMPT
 )
 import json
+import asyncio
 import os
+import hashlib
 from datetime import datetime
 from pathlib import Path
+from functools import lru_cache
 
 router = APIRouter()
 
@@ -22,10 +25,17 @@ jd_parser = JDParser()
 llm_service = LLMService()
 skill_matcher = SkillMatcher()
 
-# Create test_output directory at root level
+# Performance settings
+SAVE_DEBUG_FILES = os.getenv("SAVE_DEBUG_FILES", "false").lower() == "true"
+
+# ⚡ CACHE: Store recently analyzed JDs (in-memory cache)
+jd_cache = {}
+MAX_CACHE_SIZE = 50
+
 ROOT_DIR = Path(__file__).parent.parent.parent
 TEST_OUTPUT_DIR = ROOT_DIR / "test_output"
-TEST_OUTPUT_DIR.mkdir(exist_ok=True)
+if SAVE_DEBUG_FILES:
+    TEST_OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def save_output(filename: str, data: dict, timestamp: str):
@@ -33,7 +43,11 @@ def save_output(filename: str, data: dict, timestamp: str):
     filepath = TEST_OUTPUT_DIR / f"{timestamp}_{filename}"
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    print(f"💾 Saved: {filepath.name}")
+
+
+def get_jd_hash(jd_text: str) -> str:
+    """Generate hash for JD text for caching"""
+    return hashlib.md5(jd_text.encode()).hexdigest()
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -65,7 +79,6 @@ async def analyze_resume(
     Returns:
         FinalAnalysis: Comprehensive analysis of candidate fit
     """
-    # Generate timestamp for this analysis session
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     try:
@@ -76,106 +89,57 @@ async def analyze_resume(
         # Step 1: Extract text from resume PDF
         print("📄 Step 1: Extracting text from PDF...")
         resume_text = await resume_parser.extract_text_from_pdf(resume)
-        
-        save_output(
-            "1_resume_extracted_text.json",
-            {
-                "filename": resume.filename,
-                "text_length": len(resume_text),
-                "extracted_text": resume_text
-            },
-            timestamp
-        )
         print(f"   ✅ Resume text extracted ({len(resume_text)} chars)\n")
         
         # Step 2: Validate and clean job description
         print("📋 Step 2: Validating job description...")
         jd_text = jd_parser.validate_and_clean(job_description)
-        
-        save_output(
-            "2_jd_cleaned.json",
-            {
-                "original_length": len(job_description),
-                "cleaned_length": len(jd_text),
-                "cleaned_text": jd_text
-            },
-            timestamp
-        )
+        jd_hash = get_jd_hash(jd_text)
         print(f"   ✅ JD validated ({len(jd_text)} chars)\n")
         
-        # Step 3: Extract structured information from resume using LLM
-        print("🤖 Step 3: Extracting resume data with LLM...")
-        resume_data = llm_service.parse_resume(resume_text, RESUME_EXTRACTION_PROMPT)
+        # ⚡ OPTIMIZATION: Check if JD was recently analyzed (cache hit)
+        jd_cached = jd_hash in jd_cache
         
-        save_output(
-            "3_llm_resume_extraction.json",
-            {
-                "output": resume_data,
-                "name": resume_data.get("name", "N/A"),
-                "experience_years": resume_data.get("total_experience_years", 0),
-                "skills_count": len(resume_data.get("skills", [])),
-                "education_count": len(resume_data.get("education", [])),
-                "projects_count": len(resume_data.get("projects", []))
-            },
-            timestamp
-        )
-        print(f"   ✅ Resume data extracted")
+        if jd_cached:
+            print("🤖 Steps 3 & 4: Resume extraction + JD cache hit...")
+            # Only parse resume, use cached JD
+            resume_data = await asyncio.to_thread(
+                lambda: llm_service.parse_resume(resume_text, RESUME_EXTRACTION_PROMPT)
+            )
+            jd_data = jd_cache[jd_hash]
+            print("   ✅ Resume extracted, JD retrieved from cache 🚀\n")
+        else:
+            print("🤖 Steps 3 & 4: Running LLM extractions in parallel...")
+            # Run both LLM calls concurrently
+            resume_data, jd_data = await asyncio.gather(
+                asyncio.to_thread(lambda: llm_service.parse_resume(resume_text, RESUME_EXTRACTION_PROMPT)),
+                asyncio.to_thread(lambda: llm_service.parse_job_description(jd_text, JD_ANALYSIS_PROMPT))
+            )
+            
+            # ⚡ Cache the JD result
+            if len(jd_cache) >= MAX_CACHE_SIZE:
+                # Remove oldest entry
+                jd_cache.pop(next(iter(jd_cache)))
+            jd_cache[jd_hash] = jd_data
+            
+            print("   ✅ Resume & JD data extracted in parallel\n")
+        
         print(f"      Name: {resume_data.get('name', 'N/A')}")
         print(f"      Experience: {resume_data.get('total_experience_years', 0)} years")
-        print(f"      Skills: {len(resume_data.get('skills', []))} found\n")
+        print(f"      Skills: {len(resume_data.get('skills', []))} found")
+        print(f"      Required skills: {len(jd_data.get('required_skills', []))} found\n")
         
-        # Step 4: Extract structured information from JD using LLM
-        print("🤖 Step 4: Extracting JD requirements with LLM...")
-        jd_data = llm_service.parse_job_description(jd_text, JD_ANALYSIS_PROMPT)
-        
-        save_output(
-            "4_llm_jd_extraction.json",
-            {
-                "output": jd_data,
-                "required_skills_count": len(jd_data.get("required_skills", [])),
-                "nice_to_have_count": len(jd_data.get("nice_to_have_skills", [])),
-                "min_experience": jd_data.get("min_experience", 0)
-            },
-            timestamp
-        )
-        print(f"   ✅ JD data extracted")
-        print(f"      Required skills: {len(jd_data.get('required_skills', []))} found")
-        print(f"      Nice-to-have: {len(jd_data.get('nice_to_have_skills', []))} found")
-        print(f"      Min experience: {jd_data.get('min_experience', 0)} years\n")
-        
-        # Step 5: Match resume to JD using Python logic
-        print("🔍 Step 5: Matching skills (Python logic)...")
+        # Step 5: Match resume to JD using Python logic (fast)
+        print("🔍 Step 5: Matching skills...")
         matching_result = skill_matcher.match_resume_to_jd(
             resume_skills=resume_data.get("skills", []),
             required_skills=jd_data.get("required_skills", []),
             nice_to_have_skills=jd_data.get("nice_to_have_skills", [])
         )
-        
-        save_output(
-            "5_skill_matching_results.json",
-            {
-                "input": {
-                    "resume_skills": resume_data.get("skills", []),
-                    "required_skills": jd_data.get("required_skills", []),
-                    "nice_to_have_skills": jd_data.get("nice_to_have_skills", [])
-                },
-                "output": matching_result,
-                "summary": {
-                    "match_percentage": matching_result["match_percentage"],
-                    "matched_count": len(matching_result["matched_skills"]),
-                    "missing_count": len(matching_result["missing_skills"]),
-                    "bonus_count": len(matching_result["matched_nice_to_have"])
-                }
-            },
-            timestamp
-        )
-        print(f"   ✅ Matching completed")
-        print(f"      Match: {matching_result['match_percentage']}%")
-        print(f"      Matched: {len(matching_result['matched_skills'])} skills")
-        print(f"      Missing: {len(matching_result['missing_skills'])} skills\n")
+        print(f"   ✅ Match: {matching_result['match_percentage']}%\n")
         
         # Step 6: Generate final analysis using LLM
-        print("🤖 Step 6: Generating final analysis with LLM...")
+        print("🤖 Step 6: Generating final analysis...")
         analysis_data = llm_service.create_final_analysis(
             candidate_name=resume_data.get("name", "Unknown"),
             total_experience=resume_data.get("total_experience_years", 0),
@@ -191,23 +155,7 @@ async def analyze_resume(
             match_percentage=matching_result["match_percentage"],
             prompt_template=FINAL_ANALYSIS_PROMPT
         )
-        
-        save_output(
-            "6_llm_final_analysis.json",
-            {
-                "output": analysis_data,
-                "summary": {
-                    "strengths_count": len(analysis_data.get("strengths", [])),
-                    "gaps_count": len(analysis_data.get("gaps", [])),
-                    "suggestions_count": len(analysis_data.get("improvement_suggestions", []))
-                }
-            },
-            timestamp
-        )
-        print(f"   ✅ Final analysis generated")
-        print(f"      Strengths: {len(analysis_data.get('strengths', []))} items")
-        print(f"      Gaps: {len(analysis_data.get('gaps', []))} items")
-        print(f"      Suggestions: {len(analysis_data.get('improvement_suggestions', []))} items\n")
+        print(f"   ✅ Final analysis generated\n")
         
         # Step 7: Construct final response
         print("📦 Step 7: Creating final API response...")
@@ -219,74 +167,56 @@ async def analyze_resume(
             improvement_suggestions=analysis_data["improvement_suggestions"]
         )
         
-        save_output(
-            "7_final_api_response.json",
-            final_analysis.model_dump(),
-            timestamp
-        )
+        # ⚡ OPTIMIZATION: Save outputs asynchronously (only if debug enabled)
+        if SAVE_DEBUG_FILES:
+            asyncio.create_task(save_analysis_outputs(
+                timestamp, resume, resume_text, jd_text,
+                resume_data, jd_data, matching_result,
+                analysis_data, final_analysis, jd_cached
+            ))
         
-        # Save complete summary
-        save_output(
-            "0_complete_summary.json",
-            {
-                "session_id": timestamp,
-                "input": {
-                    "resume_filename": resume.filename,
-                    "jd_preview": jd_text[:200] + "..."
-                },
-                "resume_extraction": {
-                    "name": resume_data.get("name", "N/A"),
-                    "experience": resume_data.get("total_experience_years", 0),
-                    "skills": resume_data.get("skills", []),
-                    "education": resume_data.get("education", []),
-                    "projects": resume_data.get("projects", [])
-                },
-                "jd_extraction": {
-                    "required_skills": jd_data.get("required_skills", []),
-                    "min_experience": jd_data.get("min_experience", 0),
-                    "nice_to_have_skills": jd_data.get("nice_to_have_skills", [])
-                },
-                "matching": matching_result,
-                "final_analysis": final_analysis.model_dump()
-            },
-            timestamp
-        )
-        
-        print(f"   ✅ Final response created\n")
         print(f"{'='*80}")
-        print(f"✅ Analysis Complete - Check test_output/{timestamp}_*.json")
+        print(f"✅ Analysis Complete - {timestamp}")
         print(f"{'='*80}\n")
         
         return final_analysis
         
     except HTTPException as he:
         print(f"\n❌ HTTP Exception: {he.detail}")
-        save_output(
-            "error_log.json",
-            {
-                "error_type": "HTTPException",
-                "status_code": he.status_code,
-                "detail": he.detail,
-                "timestamp": timestamp
-            },
-            timestamp
-        )
         raise
     except Exception as e:
         print(f"\n❌ Unexpected Error: {str(e)}")
-        print(f"   Error Type: {type(e).__name__}")
         import traceback
-        save_output(
-            "error_log.json",
-            {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "traceback": traceback.format_exc(),
-                "timestamp": timestamp
-            },
-            timestamp
-        )
+        print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error during analysis: {str(e)}"
         )
+
+
+async def save_analysis_outputs(
+    timestamp, resume, resume_text, jd_text,
+    resume_data, jd_data, matching_result,
+    analysis_data, final_analysis, jd_cached
+):
+    """
+    Save all analysis outputs asynchronously (non-blocking)
+    """
+    try:
+        save_output(
+            "0_complete_summary.json",
+            {
+                "session_id": timestamp,
+                "jd_cache_hit": jd_cached,
+                "resume_extraction": resume_data,
+                "jd_extraction": jd_data,
+                "matching": matching_result,
+                "final_analysis": final_analysis.model_dump()
+            },
+            timestamp
+        )
+        
+        print(f"💾 Summary saved to test_output/{timestamp}_0_complete_summary.json")
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Failed to save outputs: {str(e)}") 
